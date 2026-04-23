@@ -85,6 +85,12 @@ export async function fetchTemplates(): Promise<HubTemplate[]> {
   return apiFetch<HubTemplate[]>('/api/templates')
 }
 
+export async function getHubTemplate(
+  name: string
+): Promise<{ name: string; files: Record<string, string> }> {
+  return apiFetch(`/api/templates/${encodeURIComponent(name)}`)
+}
+
 export async function patchClaw(
   id: string,
   patch: { name?: string; tags?: string[]; color?: string }
@@ -96,8 +102,24 @@ export async function patchClaw(
 }
 
 // ── Settings ──
+// Mirrors pkg/hub/settings.go. Keep in sync.
+
+export interface LLMKeyView {
+  name: string
+  provider: string
+  keySet: boolean
+  default: boolean
+  defaultModel?: string
+}
+
+export interface LinearIntegrationView {
+  workspace: string
+  tokenSet: boolean
+  webhookSecretSet: boolean
+}
+
 export interface SettingsView {
-  llmKeys: Record<string, boolean>
+  llmKeys: LLMKeyView[]
   providers: Record<string, {
     type: string
     enabled?: boolean
@@ -110,12 +132,32 @@ export interface SettingsView {
   }>
   github: Array<{ appId: number; url?: string; keySet: boolean }>
   sshPublicKeys: string[]
-  integrations?: { linear?: Array<{ workspace: string; tokenSet: boolean; webhookSecretSet: boolean }> }
+  integrations?: {
+    linear?: LinearIntegrationView[]
+    shortcut?: Array<{ workspace: string; tokenSet: boolean }>
+  }
   factories?: Array<{ name: string; integration: string; workspace: string; team: string; triggerStatus: string; doneStatus: string; template: string; color?: string; tags?: string[]; terminateOnLeave?: boolean; webhookSecretSet?: boolean }>
+  secrets?: string[]
+}
+
+export interface LLMKeyPatch {
+  name: string
+  provider?: string
+  apiKey?: string
+  default?: boolean
+  delete?: boolean
+  defaultModel?: string
+}
+
+export interface LinearIntegrationPatch {
+  workspace: string
+  originalWorkspace?: string
+  token?: string
+  webhookSecret?: string
 }
 
 export interface SettingsPatch {
-  llmKeys?: Record<string, string>
+  llmKeys?: LLMKeyPatch[]
   providers?: Record<string, {
     token?: string
     apiKey?: string
@@ -126,6 +168,9 @@ export interface SettingsPatch {
   }>
   uiPassword?: string
   sshPublicKeys?: string[]
+  integrations?: {
+    linear?: LinearIntegrationPatch[]
+  }
 }
 
 export async function fetchSettings(): Promise<SettingsView> {
@@ -136,6 +181,26 @@ export async function patchSettings(patch: SettingsPatch): Promise<void> {
   await apiFetch('/api/settings', {
     method: 'PATCH',
     body: JSON.stringify(patch),
+  })
+}
+
+// ── Secrets ── (separate endpoint, not part of /api/settings)
+
+export async function listSecrets(): Promise<string[]> {
+  const res = await apiFetch<{ secrets: string[] }>('/api/secrets')
+  return res.secrets ?? []
+}
+
+export async function putSecret(name: string, value: string): Promise<void> {
+  await apiFetch('/api/secrets', {
+    method: 'PUT',
+    body: JSON.stringify({ name, value }),
+  })
+}
+
+export async function deleteSecret(name: string): Promise<void> {
+  await apiFetch(`/api/secrets?name=${encodeURIComponent(name)}`, {
+    method: 'DELETE',
   })
 }
 

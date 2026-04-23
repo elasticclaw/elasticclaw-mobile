@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react"
-import type { Claw, Message, CreateClawRequest } from "@/lib/types"
+import type { Claw, Message } from "@/lib/types"
 import type { ApiClaw } from "@/lib/types"
 import {
   fetchClaws,
@@ -11,6 +11,7 @@ import {
   getHubWsUrl,
   resolveToken,
 } from "@/lib/api"
+import { resolveHubTemplate, buildCreateRequest } from "@/lib/template"
 import { mapApiClaw, mapApiMessage, mapApiStatus, computeUptime } from "@/lib/mappers"
 import { useTypewriter, type TypewriterState } from "@/hooks/use-typewriter"
 import * as storage from "@/lib/storage"
@@ -322,19 +323,20 @@ export function useHub(selectedClawId: string | null): HubState {
   }, [persistMessages, pushChunk])
 
   const createClaw = useCallback(async (req: { name: string; template: string; color?: string }) => {
-    const apiClaw = await apiCreateClaw({
+    const resolved = await resolveHubTemplate(req.template)
+    const fullReq = buildCreateRequest({
       name: req.name,
-      template: req.template,
-      provider: 'replicated',
+      templateName: req.template,
+      resolved,
+      overrides: { color: req.color },
+      source: 'hub',
     })
-    if (req.color) {
-      apiPatchClaw(apiClaw.id, { color: req.color }).catch(() => {})
-    }
+    const apiClaw = await apiCreateClaw(fullReq)
     const claw = mapApiClaw(apiClaw, {
       pinned: false,
       unreadCount: 0,
       isStreaming: false,
-      color: req.color,
+      color: fullReq.color,
     })
     setClaws((prev) => [claw, ...prev])
   }, [])

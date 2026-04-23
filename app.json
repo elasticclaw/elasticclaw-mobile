@@ -8,7 +8,10 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.elasticclaw.mobile"
+      "bundleIdentifier": "com.elasticclaw.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.elasticclaw.mobile"
@@ -19,6 +22,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c83311c8-b71c-435a-a1af-13cfcc39c24d"
+      }
     }
   }
 }

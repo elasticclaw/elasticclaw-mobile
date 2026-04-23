@@ -55,10 +55,66 @@ export interface ApiMessage {
   created_at: string
 }
 
+// ── Template config (parsed from elasticclaw-config.yaml) ──
+// Mirrors pkg/types/template.go:TemplateConfig. Keep in sync.
+
+export interface GitHubRepoAccess {
+  repo: string
+  permissions?: "read" | "write"
+}
+
+export interface GitHubTemplateConfig {
+  repos: GitHubRepoAccess[]
+}
+
+export interface LinearTemplateConfig {
+  workspace?: string
+  team?: string
+}
+
+export interface TemplateResources {
+  cpu?: string
+  memory?: string
+  disk?: string
+}
+
+export interface TemplateConfig {
+  provider: string
+  resources?: TemplateResources
+  instance_type?: string
+  image?: string
+  ttl?: string
+  default_model?: string
+  llm_key?: string
+  snapshot?: string
+  auto_watch_ci?: boolean
+  auto_watch_bugbot?: boolean
+  github?: GitHubTemplateConfig
+  linear?: LinearTemplateConfig
+  nix?: boolean
+  tags?: string[]
+  color?: string
+}
+
+// Mirrors pkg/types/template.go:CreateClawRequest. Keep in sync.
 export interface CreateClawRequest {
   name: string
-  template: string
+  template_name: string
   provider: string
+  resources?: TemplateResources
+  instance_type?: string
+  image?: string
+  ttl?: string
   default_model?: string
-  files?: string[]
+  llm_key?: string
+  snapshot?: string
+  files: Record<string, string>
+  env?: Record<string, string>
+  github?: GitHubTemplateConfig
+  linear?: LinearTemplateConfig
+  auto_watch_ci?: boolean
+  auto_watch_bugbot?: boolean
+  nix?: boolean
+  tags?: string[]
+  color?: string
 }
