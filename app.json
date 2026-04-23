@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "ElasticClaw",
+    "slug": "elasticclaw",
+    "version": "1.0.0",
+    "scheme": "elasticclaw",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.elasticclaw.mobile"
+    },
+    "android": {
+      "package": "com.elasticclaw.mobile"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

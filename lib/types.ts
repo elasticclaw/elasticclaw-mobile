@@ -1,0 +1,64 @@
+export type ClawStatus = "connected" | "idle" | "offline" | "provisioning" | "error"
+
+export interface Claw {
+  id: string
+  name: string
+  template: string
+  status: ClawStatus
+  uptime: number // in seconds, computed from created_at
+  unreadCount: number
+  isStreaming: boolean
+  pinned: boolean
+  tags: string[]
+  color: string // accent color name, e.g. "blue", "emerald"
+  contextUsage: number // 0-100 percentage
+  description?: string
+  ssh_host?: string
+  ssh_port?: number
+  ssh_user?: string
+  last_seen?: string
+  created_at?: string
+  tenant_id?: string
+}
+
+export interface Message {
+  id: string
+  role: "user" | "claw" | "system"
+  content: string
+  timestamp: Date
+  claw_id?: string
+  tenant_id?: string
+}
+
+export interface ApiClaw {
+  id: string
+  name: string
+  template: string
+  status: "connected" | "offline" | "provisioning" | "starting" | "error"
+  last_seen: string
+  created_at: string
+  tenant_id: string
+  context_usage?: number
+  tags?: string[]
+  color?: string
+  ssh_host?: string
+  ssh_port?: number
+  ssh_user?: string
+}
+
+export interface ApiMessage {
+  id: string
+  claw_id: string
+  tenant_id: string
+  role: "user" | "claw"
+  content: string
+  created_at: string
+}
+
+export interface CreateClawRequest {
+  name: string
+  template: string
+  provider: string
+  default_model?: string
+  files?: string[]
+}
