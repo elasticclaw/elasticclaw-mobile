@@ -1,29 +1,63 @@
 import { useState, useRef } from "react"
-import { View, TextInput, TouchableOpacity, StyleSheet } from "react-native"
-import { ArrowUp } from "lucide-react-native"
+import { View, TextInput, TouchableOpacity, StyleSheet, ScrollView } from "react-native"
+import { ArrowUp, Paperclip } from "lucide-react-native"
 import { colors } from "@/lib/theme"
+import type { PendingAttachment } from "@/lib/attachments"
+import { PendingAttachmentChip } from "./AttachmentChip"
 
 interface Props {
-  onSend: (content: string) => void
+  onSend: (content: string, attachments: PendingAttachment[]) => void
+  onPickAttachments?: () => void
+  pendingAttachments?: PendingAttachment[]
+  onRemoveAttachment?: (localId: string) => void
   disabled?: boolean
 }
 
-export function ChatInput({ onSend, disabled }: Props) {
+export function ChatInput({
+  onSend,
+  onPickAttachments,
+  pendingAttachments,
+  onRemoveAttachment,
+  disabled,
+}: Props) {
   const [text, setText] = useState('')
   const inputRef = useRef<TextInput>(null)
 
   function handleSend() {
     const trimmed = text.trim()
-    if (!trimmed || disabled) return
-    onSend(trimmed)
+    if ((!trimmed && !pendingAttachments?.length) || disabled) return
+    onSend(trimmed, pendingAttachments ?? [])
     setText('')
   }
 
-  const canSend = text.trim().length > 0 && !disabled
+  const canSend = (text.trim().length > 0 || (pendingAttachments && pendingAttachments.length > 0)) && !disabled
 
   return (
     <View style={styles.wrap}>
+      {pendingAttachments && pendingAttachments.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.attachmentRow}
+          style={styles.attachmentScroll}
+        >
+          {pendingAttachments.map((att) => (
+            <PendingAttachmentChip
+              key={att.localId}
+              attachment={att}
+              onRemove={() => onRemoveAttachment?.(att.localId)}
+            />
+          ))}
+        </ScrollView>
+      )}
       <View style={styles.inputRow}>
+        <TouchableOpacity
+          onPress={onPickAttachments}
+          style={styles.attachBtn}
+          disabled={disabled}
+        >
+          <Paperclip size={20} color={disabled ? colors.textMuted : colors.text} />
+        </TouchableOpacity>
         <TextInput
           ref={inputRef}
           style={styles.input}
@@ -56,16 +90,31 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 8,
   },
+  attachmentScroll: {
+    maxHeight: 52,
+    marginBottom: 6,
+  },
+  attachmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 8,
+  },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 8,
     backgroundColor: colors.input,
     borderRadius: 22,
-    paddingLeft: 14,
+    paddingLeft: 8,
     paddingRight: 4,
     paddingVertical: 4,
     minHeight: 44,
+  },
+  attachBtn: {
+    width: 32,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   input: {
     flex: 1,

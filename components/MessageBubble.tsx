@@ -4,9 +4,11 @@ import * as Haptics from "expo-haptics"
 import * as Clipboard from "expo-clipboard"
 import { useEffect, useRef } from "react"
 import { ClawAvatar } from "./ClawAvatar"
+import { ParsedAttachmentChip } from "./AttachmentChip"
 import { colors, BUBBLE_TINT } from "@/lib/theme"
 import type { Message } from "@/lib/types"
 import type { TypewriterState } from "@/hooks/use-typewriter"
+import { splitAttachmentsFooter } from "@/lib/attachments"
 
 async function copyWithFeedback(content: string, onCopied?: () => void) {
   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
@@ -190,11 +192,19 @@ export function MessageBubble({ message, clawName = '?', clawColor = 'blue', sho
   }
 
   if (isUser) {
+    const { body, attachments } = splitAttachmentsFooter(message.content)
     return (
       <View style={styles.userRow}>
         <View style={styles.userBubble}>
           <Pressable onLongPress={() => copyWithFeedback(message.content, onCopied)} delayLongPress={260}>
-            <Text style={styles.userText}>{message.content}</Text>
+            {body ? <Text style={styles.userText}>{body}</Text> : null}
+            {attachments.length > 0 && (
+              <View style={styles.attachmentWrap}>
+                {attachments.map((att, i) => (
+                  <ParsedAttachmentChip key={i} attachment={att} clawId={message.claw_id ?? ''} />
+                ))}
+              </View>
+            )}
           </Pressable>
         </View>
       </View>
@@ -294,5 +304,11 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
     marginVertical: 8,
+  },
+  attachmentWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 6,
+    gap: 4,
   },
 })
