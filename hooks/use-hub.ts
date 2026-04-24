@@ -291,11 +291,14 @@ export function useHub(selectedClawId: string | null): HubState {
     const footer = buildAttachmentsFooter(attachments ?? [])
     const fullContent = content.trim() + footer
 
+    if (!fullContent) return
+
     const optimistic: Message = {
       id: `opt-${Date.now()}`,
       role: 'user',
       content: fullContent,
       timestamp: new Date(),
+      claw_id: clawId,
     }
     setMessages((prev) => {
       const next = { ...prev, [clawId]: [...(prev[clawId] || []), optimistic] }

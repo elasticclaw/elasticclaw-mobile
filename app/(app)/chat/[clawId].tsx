@@ -52,6 +52,9 @@ export default function ChatScreen() {
   const handleSend = useCallback(async (content: string, attachments: PendingAttachment[]) => {
     if (!clawId) return
 
+    // Clear attachments immediately to prevent duplicate sends during upload
+    setPendingAttachments([])
+
     // Upload any pending attachments first
     if (attachments.length > 0) {
       const readyAttachments = attachments.filter((a) => a.status === 'ready')
@@ -66,11 +69,12 @@ export default function ChatScreen() {
           }))
           const uploaded = await uploadFiles(clawId, filesToUpload)
 
-          // Merge uploaded paths back into attachments
-          const uploadedMap = new Map(uploaded.map((u) => [u.name, u]))
+          // Merge uploaded paths back into attachments using index-based matching
+          // to avoid collisions when multiple files share the same name
+          let uploadIdx = 0
           const merged = attachments.map((att) => {
-            const up = uploadedMap.get(att.name)
-            if (up && att.status === 'uploading') {
+            if (att.status === 'uploading' && uploadIdx < uploaded.length) {
+              const up = uploaded[uploadIdx++]
               return { ...att, status: 'ready' as const, path: up.path }
             }
             return att
@@ -91,8 +95,6 @@ export default function ChatScreen() {
     } else {
       hub.send(clawId, content, [])
     }
-
-    setPendingAttachments([])
   }, [clawId, hub])
 
   const handlePickDocument = useCallback(async () => {
