@@ -6,7 +6,7 @@ import type { PendingAttachment } from "@/lib/attachments"
 import { PendingAttachmentChip } from "./AttachmentChip"
 
 interface Props {
-  onSend: (content: string, attachments: PendingAttachment[]) => void
+  onSend: (content: string, attachments: PendingAttachment[]) => Promise<boolean>
   onPickAttachments?: () => void
   pendingAttachments?: PendingAttachment[]
   onRemoveAttachment?: (localId: string) => void
@@ -21,16 +21,21 @@ export function ChatInput({
   disabled,
 }: Props) {
   const [text, setText] = useState('')
+  const [isSending, setIsSending] = useState(false)
   const inputRef = useRef<TextInput>(null)
 
-  function handleSend() {
+  async function handleSend() {
     const trimmed = text.trim()
-    if ((!trimmed && !pendingAttachments?.length) || disabled) return
-    onSend(trimmed, pendingAttachments ?? [])
-    setText('')
+    if ((!trimmed && !pendingAttachments?.length) || disabled || isSending) return
+    setIsSending(true)
+    const success = await onSend(trimmed, pendingAttachments ?? [])
+    if (success) {
+      setText('')
+    }
+    setIsSending(false)
   }
 
-  const canSend = (text.trim().length > 0 || (pendingAttachments && pendingAttachments.length > 0)) && !disabled
+  const canSend = (text.trim().length > 0 || (pendingAttachments && pendingAttachments.length > 0)) && !disabled && !isSending
 
   return (
     <View style={styles.wrap}>

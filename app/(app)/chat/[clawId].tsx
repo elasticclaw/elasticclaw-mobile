@@ -48,12 +48,12 @@ export default function ChatScreen() {
   }, [messages.length, !!streaming])
 
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+  const [isSending, setIsSending] = useState(false)
 
-  const handleSend = useCallback(async (content: string, attachments: PendingAttachment[]) => {
-    if (!clawId) return
+  const handleSend = useCallback(async (content: string, attachments: PendingAttachment[]): Promise<boolean> => {
+    if (!clawId || isSending) return false
 
-    // Clear attachments immediately to prevent duplicate sends during upload
-    setPendingAttachments([])
+    setIsSending(true)
 
     // Upload any pending attachments first
     if (attachments.length > 0) {
@@ -81,19 +81,28 @@ export default function ChatScreen() {
           })
 
           hub.send(clawId, content, merged)
+          setPendingAttachments([])
+          setIsSending(false)
+          return true
         } catch (err) {
           console.error('Upload failed:', err)
-          // Show error to user - don't silently drop the message
+          // Restore attachments so the user can retry
+          setPendingAttachments(attachments)
           Alert.alert('Upload failed', 'Could not upload attachments. Please try again.')
-          return
+          setIsSending(false)
+          return false
         }
       } else {
         hub.send(clawId, content, readyAttachments)
+        setPendingAttachments([])
       }
     } else {
       hub.send(clawId, content, [])
     }
-  }, [clawId, hub])
+
+    setIsSending(false)
+    return true
+  }, [clawId, hub, isSending])
 
   const handlePickDocument = useCallback(async () => {
     try {
