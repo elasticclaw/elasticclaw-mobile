@@ -16,7 +16,7 @@ import { ChatInput } from '@/components/ChatInput'
 import { StatusDot } from '@/components/StatusDot'
 import { colors } from '@/lib/theme'
 import type { Message } from '@/lib/types'
-import type { PendingAttachment } from '@/lib/attachments'
+import { MAX_FILE_BYTES, MAX_FILES_PER_MSG, formatBytes, type PendingAttachment } from '@/lib/attachments'
 import { uploadFiles } from '@/lib/api'
 
 export default function ChatScreen() {
@@ -83,11 +83,9 @@ export default function ChatScreen() {
           hub.send(clawId, content, merged)
         } catch (err) {
           console.error('Upload failed:', err)
-          // Mark uploads as error but still send message without them
-          const failed = attachments.map((att) =>
-            att.status === 'uploading' ? { ...att, status: 'error' as const, error: 'Upload failed' } : att
-          )
-          hub.send(clawId, content, failed)
+          // Show error to user - don't silently drop the message
+          Alert.alert('Upload failed', 'Could not upload attachments. Please try again.')
+          return
         }
       } else {
         hub.send(clawId, content, readyAttachments)
@@ -105,7 +103,30 @@ export default function ChatScreen() {
       })
       if (result.canceled) return
 
-      const newAttachments: PendingAttachment[] = result.assets.map((asset) => ({
+      // Check file count limit
+      const currentCount = pendingAttachments.length
+      const availableSlots = MAX_FILES_PER_MSG - currentCount
+      if (availableSlots <= 0) {
+        Alert.alert('Limit reached', `Maximum ${MAX_FILES_PER_MSG} files per message.`)
+        return
+      }
+
+      // Filter and validate files
+      const validAssets = result.assets.slice(0, availableSlots)
+      const oversizedFiles = validAssets.filter((a) => (a.size ?? 0) > MAX_FILE_BYTES)
+      if (oversizedFiles.length > 0) {
+        Alert.alert(
+          'File too large',
+          `${oversizedFiles[0].name} exceeds ${formatBytes(MAX_FILE_BYTES)} limit.`
+        )
+        return
+      }
+
+      if (result.assets.length > availableSlots) {
+        Alert.alert('Some files skipped', `Only ${availableSlots} more file(s) allowed.`)
+      }
+
+      const newAttachments: PendingAttachment[] = validAssets.map((asset) => ({
         localId: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         name: asset.name ?? 'unnamed',
         size: asset.size ?? 0,
@@ -117,7 +138,7 @@ export default function ChatScreen() {
     } catch (err) {
       console.error('Document picker error:', err)
     }
-  }, [])
+  }, [pendingAttachments.length])
 
   const handlePickImage = useCallback(async () => {
     try {
@@ -128,7 +149,30 @@ export default function ChatScreen() {
       })
       if (result.canceled) return
 
-      const newAttachments: PendingAttachment[] = result.assets.map((asset) => ({
+      // Check file count limit
+      const currentCount = pendingAttachments.length
+      const availableSlots = MAX_FILES_PER_MSG - currentCount
+      if (availableSlots <= 0) {
+        Alert.alert('Limit reached', `Maximum ${MAX_FILES_PER_MSG} files per message.`)
+        return
+      }
+
+      // Filter and validate files
+      const validAssets = result.assets.slice(0, availableSlots)
+      const oversizedFiles = validAssets.filter((a) => (a.fileSize ?? 0) > MAX_FILE_BYTES)
+      if (oversizedFiles.length > 0) {
+        Alert.alert(
+          'File too large',
+          `${oversizedFiles[0].fileName ?? 'Image'} exceeds ${formatBytes(MAX_FILE_BYTES)} limit.`
+        )
+        return
+      }
+
+      if (result.assets.length > availableSlots) {
+        Alert.alert('Some files skipped', `Only ${availableSlots} more file(s) allowed.`)
+      }
+
+      const newAttachments: PendingAttachment[] = validAssets.map((asset) => ({
         localId: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         name: asset.fileName ?? 'image.jpg',
         size: asset.fileSize ?? 0,
@@ -140,7 +184,7 @@ export default function ChatScreen() {
     } catch (err) {
       console.error('Image picker error:', err)
     }
-  }, [])
+  }, [pendingAttachments.length])
 
   const handlePickAttachments = useCallback(() => {
     Alert.alert(
