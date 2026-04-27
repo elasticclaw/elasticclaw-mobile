@@ -28,11 +28,14 @@ export function ChatInput({
     const trimmed = text.trim()
     if ((!trimmed && !pendingAttachments?.length) || disabled || isSending) return
     setIsSending(true)
-    const success = await onSend(trimmed, pendingAttachments ?? [])
-    if (success) {
-      setText('')
+    try {
+      const success = await onSend(trimmed, pendingAttachments ?? [])
+      if (success) {
+        setText('')
+      }
+    } finally {
+      setIsSending(false)
     }
-    setIsSending(false)
   }
 
   const canSend = (text.trim().length > 0 || (pendingAttachments && pendingAttachments.length > 0)) && !disabled && !isSending
