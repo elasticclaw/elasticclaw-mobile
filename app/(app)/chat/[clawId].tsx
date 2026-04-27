@@ -129,7 +129,6 @@ export default function ChatScreen() {
         } catch (err) {
           console.error('Upload failed:', err)
           // Keep attachments from the failed batch, but also preserve any added/removed during upload
-          const failedIds = new Set(attachments.map((a) => a.localId))
           setPendingAttachments((prev) => {
             const prevIds = new Set(prev.map((a) => a.localId))
             // Keep items currently in state, plus restore failed ones that were removed
