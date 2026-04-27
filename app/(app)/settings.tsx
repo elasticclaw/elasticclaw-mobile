@@ -283,9 +283,15 @@ export default function SettingsScreen() {
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={colors.blueLight} /></View>
       ) : error ? (
-        <View style={styles.center}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity onPress={load} style={styles.retryBtn}><Text style={styles.retryText}>Retry</Text></TouchableOpacity>
+        <View style={styles.flex}>
+          <View style={styles.center}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity onPress={load} style={styles.retryBtn}><Text style={styles.retryText}>Retry</Text></TouchableOpacity>
+            <TouchableOpacity onPress={handleSignOut} style={[styles.signOutBtn, { marginTop: 16 }]} activeOpacity={0.8}>
+              <LogOut size={17} color={colors.red} />
+              <Text style={styles.signOutText}>Sign out</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex} keyboardVerticalOffset={64}>
