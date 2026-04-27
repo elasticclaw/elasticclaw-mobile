@@ -78,18 +78,28 @@ export default function ChatScreen() {
           })
 
           hub.send(clawId, content, merged)
-          setPendingAttachments([])
+          // Remove sent attachments, but preserve any added during upload
+          const sentIds = new Set(attachments.map((a) => a.localId))
+          setPendingAttachments((prev) => prev.filter((a) => !sentIds.has(a.localId)))
           return true
         } catch (err) {
           console.error('Upload failed:', err)
-          // Restore attachments so the user can retry
-          setPendingAttachments(attachments)
+          // Keep attachments from the failed batch, but also preserve any added/removed during upload
+          const failedIds = new Set(attachments.map((a) => a.localId))
+          setPendingAttachments((prev) => {
+            const prevIds = new Set(prev.map((a) => a.localId))
+            // Keep items currently in state, plus restore failed ones that were removed
+            const restoredFromFailed = attachments.filter((a) => !prevIds.has(a.localId))
+            return [...prev, ...restoredFromFailed]
+          })
           Alert.alert('Upload failed', 'Could not upload attachments. Please try again.')
           return false
         }
       } else {
         hub.send(clawId, content, readyAttachments)
-        setPendingAttachments([])
+        // Remove sent attachments, but preserve any added during send
+        const sentIds = new Set(attachments.map((a) => a.localId))
+        setPendingAttachments((prev) => prev.filter((a) => !sentIds.has(a.localId)))
       }
     } else {
       hub.send(clawId, content, [])
@@ -115,19 +125,23 @@ export default function ChatScreen() {
       }
 
       // Filter and validate files
-      const validAssets = result.assets.slice(0, availableSlots)
+      let validAssets = result.assets.slice(0, availableSlots)
       const oversizedFiles = validAssets.filter((a) => (a.size ?? 0) > MAX_FILE_BYTES)
       if (oversizedFiles.length > 0) {
+        // Filter out oversized files instead of rejecting entire batch
+        validAssets = validAssets.filter((a) => (a.size ?? 0) <= MAX_FILE_BYTES)
+        const names = oversizedFiles.map((f) => f.name).join(', ')
         Alert.alert(
-          'File too large',
-          `${oversizedFiles[0].name} exceeds ${formatBytes(MAX_FILE_BYTES)} limit.`
+          oversizedFiles.length === 1 ? 'File too large' : 'Files too large',
+          `${names} exceeds ${formatBytes(MAX_FILE_BYTES)} limit.`
         )
-        return
       }
 
       if (result.assets.length > availableSlots) {
         Alert.alert('Some files skipped', `Only ${availableSlots} more file(s) allowed.`)
       }
+
+      if (validAssets.length === 0) return
 
       const newAttachments: PendingAttachment[] = validAssets.map((asset) => ({
         localId: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -161,19 +175,23 @@ export default function ChatScreen() {
       }
 
       // Filter and validate files
-      const validAssets = result.assets.slice(0, availableSlots)
+      let validAssets = result.assets.slice(0, availableSlots)
       const oversizedFiles = validAssets.filter((a) => (a.fileSize ?? 0) > MAX_FILE_BYTES)
       if (oversizedFiles.length > 0) {
+        // Filter out oversized files instead of rejecting entire batch
+        validAssets = validAssets.filter((a) => (a.fileSize ?? 0) <= MAX_FILE_BYTES)
+        const names = oversizedFiles.map((f) => f.fileName ?? 'Image').join(', ')
         Alert.alert(
-          'File too large',
-          `${oversizedFiles[0].fileName ?? 'Image'} exceeds ${formatBytes(MAX_FILE_BYTES)} limit.`
+          oversizedFiles.length === 1 ? 'File too large' : 'Files too large',
+          `${names} exceeds ${formatBytes(MAX_FILE_BYTES)} limit.`
         )
-        return
       }
 
       if (result.assets.length > availableSlots) {
         Alert.alert('Some files skipped', `Only ${availableSlots} more file(s) allowed.`)
       }
+
+      if (validAssets.length === 0) return
 
       const newAttachments: PendingAttachment[] = validAssets.map((asset) => ({
         localId: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
