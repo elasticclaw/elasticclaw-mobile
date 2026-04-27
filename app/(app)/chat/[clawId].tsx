@@ -5,6 +5,8 @@ import {
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ChevronLeft, RotateCcw, Info } from 'lucide-react-native'
+import * as DocumentPicker from 'expo-document-picker'
+import * as ImagePicker from 'expo-image-picker'
 import { ClawDetailSheet } from '@/components/ClawDetailSheet'
 import { ClawAvatar } from '@/components/ClawAvatar'
 import { Toast } from '@/components/Toast'
@@ -14,6 +16,8 @@ import { ChatInput } from '@/components/ChatInput'
 import { StatusDot } from '@/components/StatusDot'
 import { colors } from '@/lib/theme'
 import type { Message } from '@/lib/types'
+import { MAX_FILE_BYTES, MAX_FILES_PER_MSG, formatBytes, type PendingAttachment } from '@/lib/attachments'
+import { uploadFiles } from '@/lib/api'
 
 export default function ChatScreen() {
   const { clawId } = useLocalSearchParams<{ clawId: string }>()
@@ -43,9 +47,174 @@ export default function ChatScreen() {
     }
   }, [messages.length, !!streaming])
 
-  const handleSend = useCallback((content: string) => {
-    if (clawId) hub.send(clawId, content)
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+
+  interface NormalizedAsset {
+    uri: string
+    name: string
+    size: number
+    mimeType: string
+  }
+
+  const validateAndCreateAttachments = useCallback((
+    assets: NormalizedAsset[],
+    currentCount: number
+  ): PendingAttachment[] | null => {
+    const availableSlots = MAX_FILES_PER_MSG - currentCount
+    if (availableSlots <= 0) {
+      Alert.alert('Limit reached', `Maximum ${MAX_FILES_PER_MSG} files per message.`)
+      return null
+    }
+
+    let validAssets = assets.slice(0, availableSlots)
+    const oversizedFiles = validAssets.filter((a) => a.size > MAX_FILE_BYTES)
+    if (oversizedFiles.length > 0) {
+      validAssets = validAssets.filter((a) => a.size <= MAX_FILE_BYTES)
+      const names = oversizedFiles.map((f) => f.name).join(', ')
+      Alert.alert(
+        oversizedFiles.length === 1 ? 'File too large' : 'Files too large',
+        `${names} exceeds ${formatBytes(MAX_FILE_BYTES)} limit.`
+      )
+    }
+
+    if (assets.length > availableSlots) {
+      Alert.alert('Some files skipped', `Only ${availableSlots} more file(s) allowed.`)
+    }
+
+    if (validAssets.length === 0) return null
+
+    return validAssets.map((asset) => ({
+      localId: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: asset.name,
+      size: asset.size,
+      mimetype: asset.mimeType,
+      previewUrl: asset.uri,
+      status: 'uploading' as const,
+    }))
+  }, [])
+
+  const handleSend = useCallback(async (content: string, attachments: PendingAttachment[]): Promise<boolean> => {
+    if (!clawId) return false
+
+    // Upload any pending attachments first
+    if (attachments.length > 0) {
+      const readyAttachments = attachments.filter((a) => a.status === 'ready')
+      const uploadingAttachments = attachments.filter((a) => a.status === 'uploading')
+
+      if (uploadingAttachments.length > 0) {
+        try {
+          const filesToUpload = uploadingAttachments.map((a) => ({
+            uri: a.previewUrl!, // local file URI
+            name: a.name,
+            type: a.mimetype,
+          }))
+          const uploaded = await uploadFiles(clawId, filesToUpload)
+
+          // Merge uploaded paths back into attachments using index-based matching
+          // to avoid collisions when multiple files share the same name
+          let uploadIdx = 0
+          const merged = attachments.map((att) => {
+            if (att.status === 'uploading' && uploadIdx < uploaded.length) {
+              const up = uploaded[uploadIdx++]
+              return { ...att, status: 'ready' as const, path: up.path }
+            }
+            return att
+          })
+
+          hub.send(clawId, content, merged)
+          // Remove sent attachments, but preserve any added during upload
+          const sentIds = new Set(attachments.map((a) => a.localId))
+          setPendingAttachments((prev) => prev.filter((a) => !sentIds.has(a.localId)))
+          return true
+        } catch (err) {
+          console.error('Upload failed:', err)
+          // Keep attachments from the failed batch, but also preserve any added/removed during upload
+          setPendingAttachments((prev) => {
+            const prevIds = new Set(prev.map((a) => a.localId))
+            // Keep items currently in state, plus restore failed ones that were removed
+            const restoredFromFailed = attachments.filter((a) => !prevIds.has(a.localId))
+            return [...prev, ...restoredFromFailed]
+          })
+          Alert.alert('Upload failed', 'Could not upload attachments. Please try again.')
+          return false
+        }
+      } else {
+        hub.send(clawId, content, readyAttachments)
+        // Remove sent attachments, but preserve any added during send
+        const sentIds = new Set(attachments.map((a) => a.localId))
+        setPendingAttachments((prev) => prev.filter((a) => !sentIds.has(a.localId)))
+      }
+    } else {
+      hub.send(clawId, content, [])
+    }
+
+    return true
   }, [clawId, hub])
+
+  const handlePickDocument = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      })
+      if (result.canceled) return
+
+      const normalizedAssets: NormalizedAsset[] = result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.name ?? 'unnamed',
+        size: asset.size ?? 0,
+        mimeType: asset.mimeType ?? 'application/octet-stream',
+      }))
+
+      const newAttachments = validateAndCreateAttachments(normalizedAssets, pendingAttachments.length)
+      if (newAttachments) {
+        setPendingAttachments((prev) => [...prev, ...newAttachments])
+      }
+    } catch (err) {
+      console.error('Document picker error:', err)
+    }
+  }, [pendingAttachments.length, validateAndCreateAttachments])
+
+  const handlePickImage = useCallback(async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.8,
+      })
+      if (result.canceled) return
+
+      const normalizedAssets: NormalizedAsset[] = result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.fileName ?? 'image.jpg',
+        size: asset.fileSize ?? 0,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+      }))
+
+      const newAttachments = validateAndCreateAttachments(normalizedAssets, pendingAttachments.length)
+      if (newAttachments) {
+        setPendingAttachments((prev) => [...prev, ...newAttachments])
+      }
+    } catch (err) {
+      console.error('Image picker error:', err)
+    }
+  }, [pendingAttachments.length, validateAndCreateAttachments])
+
+  const handlePickAttachments = useCallback(() => {
+    Alert.alert(
+      'Attach file',
+      'Choose a source',
+      [
+        { text: 'Photo Library', onPress: handlePickImage },
+        { text: 'Document', onPress: handlePickDocument },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    )
+  }, [handlePickImage, handlePickDocument])
+
+  const handleRemoveAttachment = useCallback((localId: string) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.localId !== localId))
+  }, [])
 
   function handleNewSession() {
     if (clawId) hub.newSession(clawId)
@@ -176,6 +345,9 @@ export default function ChatScreen() {
         <View style={{ paddingBottom: insets.bottom }}>
           <ChatInput
             onSend={handleSend}
+            onPickAttachments={handlePickAttachments}
+            pendingAttachments={pendingAttachments}
+            onRemoveAttachment={handleRemoveAttachment}
             disabled={claw?.status === 'provisioning' || claw?.status === 'offline'}
           />
         </View>

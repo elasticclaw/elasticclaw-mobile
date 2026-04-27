@@ -11,6 +11,7 @@ import {
   getHubWsUrl,
   resolveToken,
 } from "@/lib/api"
+import { buildAttachmentsFooter, type PendingAttachment } from "@/lib/attachments"
 import { resolveHubTemplate, buildCreateRequest } from "@/lib/template"
 import { mapApiClaw, mapApiMessage, mapApiStatus, computeUptime } from "@/lib/mappers"
 import { useTypewriter, type TypewriterState } from "@/hooks/use-typewriter"
@@ -24,7 +25,7 @@ export interface HubState {
   configured: boolean
   loading: boolean
   hubError: string | null
-  send: (clawId: string, content: string) => Promise<void>
+  send: (clawId: string, content: string, attachments?: PendingAttachment[]) => Promise<void>
   createClaw: (req: { name: string; template: string; color?: string }) => Promise<void>
   killClaw: (clawId: string) => Promise<void>
   patchClaw: (clawId: string, patch: { name?: string; tags?: string[]; color?: string }) => Promise<void>
@@ -284,14 +285,20 @@ export function useHub(selectedClawId: string | null): HubState {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const send = useCallback(async (clawId: string, content: string) => {
-    if (!clawId || !content.trim()) return
+  const send = useCallback(async (clawId: string, content: string, attachments?: PendingAttachment[]) => {
+    if (!clawId || (!content.trim() && !attachments?.length)) return
+
+    const footer = buildAttachmentsFooter(attachments ?? [])
+    const fullContent = content.trim() + footer
+
+    if (!fullContent) return
 
     const optimistic: Message = {
       id: `opt-${Date.now()}`,
       role: 'user',
-      content: content.trim(),
+      content: fullContent,
       timestamp: new Date(),
+      claw_id: clawId,
     }
     setMessages((prev) => {
       const next = { ...prev, [clawId]: [...(prev[clawId] || []), optimistic] }
@@ -302,12 +309,10 @@ export function useHub(selectedClawId: string | null): HubState {
     pushChunk(clawId, '')
 
     try {
-      const sent = await apiSendMessage(clawId, content.trim())
+      const sent = await apiSendMessage(clawId, fullContent)
       const realMsg = mapApiMessage(sent)
       setMessages((prev) => {
         const msgs = prev[clawId] || []
-        // If the WS broadcast beat the REST response, the real msg is already
-        // in the list — just drop the optimistic entry. Otherwise swap it in.
         const hasReal = msgs.some((m) => m.id === realMsg.id)
         const updated = hasReal
           ? msgs.filter((m) => m.id !== optimistic.id)

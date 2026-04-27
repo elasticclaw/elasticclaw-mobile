@@ -211,6 +211,54 @@ export function getHubWsUrl(): string {
   return `${wsBase}/api/ws?token=${encodeURIComponent(token)}`
 }
 
+export interface UploadedAttachment {
+  name: string
+  path: string
+  size: number
+  mimetype: string
+}
+
+// getFileViewUrl returns the hub URL that serves the bytes of an uploaded
+// file back to the client. Auth is via ?token query since React Native image
+// components can't set Authorization headers.
+export function getFileViewUrl(clawId: string, path: string): string {
+  const token = getTokenSync()
+  const hubBase = getHubUrl()
+  const base = `${hubBase}/api/files/view/${clawId}`
+  const qs = new URLSearchParams({ path, token }).toString()
+  return `${base}?${qs}`
+}
+
+export async function uploadFiles(
+  clawId: string,
+  files: { uri: string; name: string; type: string }[]
+): Promise<UploadedAttachment[]> {
+  const token = await resolveToken()
+  const hubBase = getHubUrl()
+  const url = `${hubBase}/api/files/${clawId}`
+
+  const form = new FormData()
+  for (const f of files) {
+    // React Native expects a File-like object with uri, name, type
+    form.append("files", {
+      uri: f.uri,
+      name: f.name,
+      type: f.type,
+    } as any)
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!res.ok) {
+    throw new Error(`upload failed ${res.status}: ${await res.text()}`)
+  }
+  const data = await res.json()
+  return data.files as UploadedAttachment[]
+}
+
 export function clearConfig() {
   _token = null
   _tokenPromise = null
