@@ -48,12 +48,9 @@ export default function ChatScreen() {
   }, [messages.length, !!streaming])
 
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
-  const [isSending, setIsSending] = useState(false)
 
   const handleSend = useCallback(async (content: string, attachments: PendingAttachment[]): Promise<boolean> => {
-    if (!clawId || isSending) return false
-
-    setIsSending(true)
+    if (!clawId) return false
 
     // Upload any pending attachments first
     if (attachments.length > 0) {
@@ -82,14 +79,12 @@ export default function ChatScreen() {
 
           hub.send(clawId, content, merged)
           setPendingAttachments([])
-          setIsSending(false)
           return true
         } catch (err) {
           console.error('Upload failed:', err)
           // Restore attachments so the user can retry
           setPendingAttachments(attachments)
           Alert.alert('Upload failed', 'Could not upload attachments. Please try again.')
-          setIsSending(false)
           return false
         }
       } else {
@@ -100,9 +95,8 @@ export default function ChatScreen() {
       hub.send(clawId, content, [])
     }
 
-    setIsSending(false)
     return true
-  }, [clawId, hub, isSending])
+  }, [clawId, hub])
 
   const handlePickDocument = useCallback(async () => {
     try {
@@ -152,7 +146,7 @@ export default function ChatScreen() {
   const handlePickImage = useCallback(async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsMultipleSelection: true,
         quality: 0.8,
       })
