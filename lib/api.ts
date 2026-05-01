@@ -263,3 +263,25 @@ export function clearConfig() {
   _token = null
   _tokenPromise = null
 }
+
+// ── Models API ───────────────────────────────────────────────────────────────
+
+export interface ModelInfo {
+  id: string
+  name: string
+  api?: string
+}
+
+export interface ProviderInfo {
+  name: string
+  label: string
+  models: ModelInfo[]
+}
+
+export interface ModelsResponse {
+  providers: ProviderInfo[]
+}
+
+export async function fetchModels(): Promise<ModelsResponse> {
+  return apiFetch<ModelsResponse>('/api/models')
+}

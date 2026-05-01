@@ -8,29 +8,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ChevronLeft, Check, LogOut, Trash2, Star, Plus } from 'lucide-react-native'
 import { colors } from '@/lib/theme'
 import {
-  fetchSettings, patchSettings, clearConfig,
+  fetchSettings, patchSettings, clearConfig, fetchModels,
   listSecrets, putSecret, deleteSecret,
   type SettingsView, type LLMKeyView, type LinearIntegrationView,
+  type ModelsResponse,
 } from '@/lib/api'
 import { deleteToken } from '@/lib/storage'
 
-const LLM_PROVIDERS = ['anthropic', 'fireworks'] as const
+const LLM_PROVIDERS = ['anthropic', 'fireworks', 'openai', 'groq', 'deepseek'] as const
 const PROVIDER_PLACEHOLDER: Record<string, string> = {
   anthropic: 'sk-ant-…',
   fireworks: 'fw_…',
-}
-// Mirror of PROVIDER_MODELS in elasticclaw/web/app/settings/[section]/settings-content.tsx
-const PROVIDER_MODELS: Record<string, { id: string; name: string }[]> = {
-  anthropic: [
-    { id: 'anthropic/claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
-    { id: 'anthropic/claude-opus-4-5',   name: 'Claude Opus 4.5' },
-    { id: 'anthropic/claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
-  ],
-  fireworks: [
-    { id: 'fireworks/accounts/fireworks/models/kimi-k2p6',               name: 'Kimi K2' },
-    { id: 'fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct', name: 'Llama 3.3 70B' },
-    { id: 'fireworks/accounts/fireworks/models/deepseek-v3',             name: 'DeepSeek V3' },
-  ],
+  openai: 'sk-…',
+  groq: 'gsk_…',
+  deepseek: 'sk-…',
 }
 
 export default function SettingsScreen() {
@@ -60,6 +51,9 @@ export default function SettingsScreen() {
   const [newLlmKey, setNewLlmKey] = useState('')
   const [newLlmModel, setNewLlmModel] = useState('')
 
+  // Models fetched from hub
+  const [modelsData, setModelsData] = useState<ModelsResponse | null>(null)
+
   // New Linear workspace form
   const [newLinearWorkspace, setNewLinearWorkspace] = useState('')
   const [newLinearToken, setNewLinearToken] = useState('')
@@ -74,7 +68,11 @@ export default function SettingsScreen() {
     setLoading(true)
     setError(null)
     try {
-      const [s, sec] = await Promise.all([fetchSettings(), listSecrets().catch(() => [])])
+      const [s, sec, models] = await Promise.all([
+        fetchSettings(),
+        listSecrets().catch(() => []),
+        fetchModels().catch(() => null),
+      ])
       setSettings(s)
       setRepTtl(s.providers?.replicated?.defaultTtl ?? '')
       setRepInstance(s.providers?.replicated?.defaultInstanceType ?? '')
@@ -82,6 +80,7 @@ export default function SettingsScreen() {
       setDaySnapshot(s.providers?.daytona?.defaultSnapshot ?? '')
       setSshKeys(s.sshPublicKeys ?? [])
       setSecrets(sec)
+      if (models) setModelsData(models)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings')
     } finally {
@@ -342,7 +341,8 @@ export default function SettingsScreen() {
               </Row>
               <Row label="Default model (optional)">
                 <ModelPicker
-                  models={PROVIDER_MODELS[newLlmProvider]}
+                  provider={newLlmProvider}
+                  modelsData={modelsData}
                   value={newLlmModel}
                   onChange={setNewLlmModel}
                 />
@@ -588,11 +588,15 @@ function ProviderPicker({ value, onChange }: { value: string; onChange: (v: stri
   )
 }
 
-function ModelPicker({ models, value, onChange }: {
-  models: { id: string; name: string }[]
+function ModelPicker({ provider, modelsData, value, onChange }: {
+  provider: string
+  modelsData: ModelsResponse | null
   value: string
   onChange: (v: string) => void
 }) {
+  const models = modelsData?.providers?.find(p => p.name === provider)?.models ?? []
+  const hasModels = models.length > 0
+
   return (
     <View style={{ gap: 6 }}>
       <TouchableOpacity
@@ -603,18 +607,30 @@ function ModelPicker({ models, value, onChange }: {
           — use provider default —
         </Text>
       </TouchableOpacity>
-      {models.map((m) => {
-        const active = m.id === value
-        return (
-          <TouchableOpacity
-            key={m.id}
-            onPress={() => onChange(m.id)}
-            style={[styles.modelChip, active && styles.modelChipActive]}
-          >
-            <Text style={[styles.modelChipText, active && styles.modelChipTextActive]}>{m.name}</Text>
-          </TouchableOpacity>
-        )
-      })}
+      {hasModels ? (
+        models.map((m) => {
+          const active = m.id === value
+          return (
+            <TouchableOpacity
+              key={m.id}
+              onPress={() => onChange(m.id)}
+              style={[styles.modelChip, active && styles.modelChipActive]}
+            >
+              <Text style={[styles.modelChipText, active && styles.modelChipTextActive]}>{m.name}</Text>
+            </TouchableOpacity>
+          )
+        })
+      ) : (
+        <TextInput
+          style={styles.input}
+          placeholder="e.g. myprovider/model-name"
+          placeholderTextColor={colors.textMuted}
+          value={value}
+          onChangeText={onChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      )}
     </View>
   )
 }
