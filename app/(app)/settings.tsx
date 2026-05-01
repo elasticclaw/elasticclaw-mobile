@@ -9,28 +9,19 @@ import { ChevronLeft, Check, LogOut, Trash2, Star, Plus } from 'lucide-react-nat
 import { colors } from '@/lib/theme'
 import {
   fetchSettings, patchSettings, clearConfig,
-  listSecrets, putSecret, deleteSecret,
+  listSecrets, putSecret, deleteSecret, fetchModels,
   type SettingsView, type LLMKeyView, type LinearIntegrationView,
+  type ProviderModels,
 } from '@/lib/api'
 import { deleteToken } from '@/lib/storage'
 
-const LLM_PROVIDERS = ['anthropic', 'fireworks'] as const
+const LLM_PROVIDERS = ['anthropic', 'fireworks', 'openai', 'groq', 'deepseek'] as const
 const PROVIDER_PLACEHOLDER: Record<string, string> = {
   anthropic: 'sk-ant-…',
   fireworks: 'fw_…',
-}
-// Mirror of PROVIDER_MODELS in elasticclaw/web/app/settings/[section]/settings-content.tsx
-const PROVIDER_MODELS: Record<string, { id: string; name: string }[]> = {
-  anthropic: [
-    { id: 'anthropic/claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
-    { id: 'anthropic/claude-opus-4-5',   name: 'Claude Opus 4.5' },
-    { id: 'anthropic/claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
-  ],
-  fireworks: [
-    { id: 'fireworks/accounts/fireworks/models/kimi-k2p6',               name: 'Kimi K2' },
-    { id: 'fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct', name: 'Llama 3.3 70B' },
-    { id: 'fireworks/accounts/fireworks/models/deepseek-v3',             name: 'DeepSeek V3' },
-  ],
+  openai: 'sk-…',
+  groq: 'gsk_…',
+  deepseek: 'sk-…',
 }
 
 export default function SettingsScreen() {
@@ -59,6 +50,8 @@ export default function SettingsScreen() {
   const [newLlmProvider, setNewLlmProvider] = useState<string>('anthropic')
   const [newLlmKey, setNewLlmKey] = useState('')
   const [newLlmModel, setNewLlmModel] = useState('')
+  const [providerModels, setProviderModels] = useState<ProviderModels>({})
+  const [modelsLoading, setModelsLoading] = useState(false)
 
   // New Linear workspace form
   const [newLinearWorkspace, setNewLinearWorkspace] = useState('')
@@ -90,6 +83,19 @@ export default function SettingsScreen() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Fetch available models on mount
+  useEffect(() => {
+    setModelsLoading(true)
+    fetchModels()
+      .then((data) => {
+        if (data && 'providers' in data) {
+          setProviderModels((data as unknown as { providers: ProviderModels }).providers)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setModelsLoading(false))
+  }, [])
 
   // ── Save for provider/security/SSH sections (not LLM/Linear/Secrets which save individually) ──
   async function handleSave() {
@@ -341,11 +347,17 @@ export default function SettingsScreen() {
                 />
               </Row>
               <Row label="Default model (optional)">
-                <ModelPicker
-                  models={PROVIDER_MODELS[newLlmProvider]}
-                  value={newLlmModel}
-                  onChange={setNewLlmModel}
-                />
+                {modelsLoading ? (
+                  <View style={{ paddingVertical: 8 }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 12 }}>Loading models…</Text>
+                  </View>
+                ) : (
+                  <ModelPicker
+                    models={providerModels[newLlmProvider]}
+                    value={newLlmModel}
+                    onChange={setNewLlmModel}
+                  />
+                )}
               </Row>
               <InlineAddButton label="Add LLM key" onPress={addLlmKey} />
             </Section>
