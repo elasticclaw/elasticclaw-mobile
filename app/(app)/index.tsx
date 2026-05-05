@@ -5,13 +5,16 @@ import {
 } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Search, X, Settings as SettingsIcon, Plus } from 'lucide-react-native'
+import { Search, X, Settings as SettingsIcon, Plus, Server } from 'lucide-react-native'
 import { useHubContext } from '@/context/HubContext'
 import { ClawListItem } from '@/components/ClawListItem'
 import { ClawDetailSheet } from '@/components/ClawDetailSheet'
 import { SpawnModal } from '@/components/SpawnModal'
 import { colors } from '@/lib/theme'
 import type { Claw } from '@/lib/types'
+import { listServers, switchServer, type ServerConfig } from '@/lib/servers'
+import { setActiveServer } from '@/lib/hub-url'
+import { setTokenCache } from '@/lib/api'
 
 export default function ClawListScreen() {
   const hub = useHubContext()
@@ -20,6 +23,8 @@ export default function ClawListScreen() {
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [detailClaw, setDetailClaw] = useState<Claw | null>(null)
   const [spawnOpen, setSpawnOpen] = useState(false)
+  const [serverPickerOpen, setServerPickerOpen] = useState(false)
+  const [servers, setServers] = useState<ServerConfig[]>([])
 
   const allTags = useMemo(() => {
     const tagSet = new Set<string>()
@@ -61,6 +66,20 @@ export default function ClawListScreen() {
     router.push(`/chat/${claw.id}`)
   }
 
+  async function openServerPicker() {
+    const s = await listServers()
+    setServers(s)
+    setServerPickerOpen(true)
+  }
+
+  async function handleSwitchServer(server: ServerConfig) {
+    setServerPickerOpen(false)
+    await switchServer(server.id)
+    setActiveServer(server)
+    setTokenCache(server.token)
+    hub.refreshServer()
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
@@ -78,16 +97,68 @@ export default function ClawListScreen() {
               ]}
             />
           </View>
-          <TouchableOpacity
-            onPress={() => router.push('/settings')}
-            style={styles.iconBtn}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <SettingsIcon size={20} color={colors.textMuted} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <TouchableOpacity
+              onPress={openServerPicker}
+              style={styles.iconBtn}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Server size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push('/settings')}
+              style={styles.iconBtn}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <SettingsIcon size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
+
+      {/* Server picker overlay */}
+      {serverPickerOpen && (
+        <View style={styles.pickerOverlay}>
+          <TouchableOpacity style={styles.pickerBackdrop} onPress={() => setServerPickerOpen(false)} />
+          <View style={[styles.pickerSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <Text style={styles.pickerTitle}>Switch Server</Text>
+            {servers.map((s) => (
+              <TouchableOpacity
+                key={s.id}
+                onPress={() => handleSwitchServer(s)}
+                style={[
+                  styles.pickerRow,
+                  s.id === hub.serverId && styles.pickerRowActive,
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pickerName, s.id === hub.serverId && styles.pickerNameActive]}>
+                    {s.name}
+                  </Text>
+                  <Text style={styles.pickerUrl}>{s.url}</Text>
+                </View>
+                {s.id === hub.serverId && (
+                  <View style={styles.pickerCheck}>
+                    <Text style={{ color: colors.blue, fontSize: 13, fontWeight: '700' }}>✓</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              onPress={() => {
+                setServerPickerOpen(false)
+                router.push('/(auth)/login')
+              }}
+              style={styles.pickerAddBtn}
+            >
+              <Plus size={16} color={colors.blue} />
+              <Text style={styles.pickerAddText}>Add Server</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Search */}
       <View style={styles.searchWrap}>
@@ -267,6 +338,78 @@ const styles = StyleSheet.create({
   iconBtn: {
     width: 36, height: 36, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',
+  },
+  pickerOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 100,
+  },
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  pickerSheet: {
+    position: 'absolute',
+    left: 0, right: 0, bottom: 0,
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+  },
+  pickerTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  pickerRowActive: {
+    backgroundColor: colors.elevated,
+  },
+  pickerName: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  pickerNameActive: {
+    color: colors.blue,
+  },
+  pickerUrl: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  pickerCheck: {
+    width: 28,
+    alignItems: 'center',
+  },
+  pickerAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: colors.elevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  pickerAddText: {
+    color: colors.blue,
+    fontSize: 14,
+    fontWeight: '600',
   },
   searchWrap: { paddingHorizontal: 12, paddingVertical: 8 },
   searchBox: {

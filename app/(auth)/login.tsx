@@ -1,28 +1,30 @@
 import { useState, useEffect } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView,
-  Platform, ActivityIndicator, ScrollView, StyleSheet,
+  Platform, ActivityIndicator, ScrollView, StyleSheet, Alert,
 } from 'react-native'
 import { router } from 'expo-router'
-import { saveToken, saveHubUrl, getHubUrl as getStoredHubUrl } from '@/lib/storage'
-import { setHubUrl } from '@/lib/hub-url'
+import { setActiveServer } from '@/lib/hub-url'
 import { setTokenCache } from '@/lib/api'
 import { colors } from '@/lib/theme'
+import { listServers, addServer, switchServer, type ServerConfig } from '@/lib/servers'
 
 export default function LoginScreen() {
+  const [mode, setMode] = useState<'list' | 'add'>('list')
+  const [servers, setServers] = useState<ServerConfig[]>([])
+  const [serverName, setServerName] = useState('')
   const [hubUrl, setHubUrlState] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    getStoredHubUrl().then((saved) => {
-      if (saved) setHubUrlState(saved)
-    })
+    listServers().then(setServers)
   }, [])
 
   async function handleLogin() {
     const url = hubUrl.trim().replace(/\/$/, '')
+    const name = serverName.trim() || url
     if (!url || !password) {
       setError('Hub URL and password are required')
       return
@@ -44,8 +46,8 @@ export default function LoginScreen() {
         setError('Login failed — no token returned')
         return
       }
-      await Promise.all([saveToken(data.hubToken), saveHubUrl(url)])
-      setHubUrl(url)
+      const server = await addServer({ name, url, token: data.hubToken })
+      setActiveServer(server)
       setTokenCache(data.hubToken)
       router.replace('/(app)')
     } catch {
@@ -55,7 +57,82 @@ export default function LoginScreen() {
     }
   }
 
+  async function handleSwitch(server: ServerConfig) {
+    await switchServer(server.id)
+    setActiveServer(server)
+    setTokenCache(server.token)
+    router.replace('/(app)')
+  }
+
+  async function handleRemove(server: ServerConfig) {
+    Alert.alert(
+      'Remove server',
+      `Remove "${server.name}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            const { removeServer } = await import('@/lib/servers')
+            await removeServer(server.id)
+            setServers(await listServers())
+          },
+        },
+      ]
+    )
+  }
+
   const canSubmit = hubUrl.trim().length > 0 && password.length > 0 && !loading
+
+  if (mode === 'list' && servers.length > 0) {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <View style={styles.hero}>
+            <View style={styles.logo}>
+              <View style={styles.logoInner} />
+            </View>
+            <Text style={styles.title}>ElasticClaw</Text>
+            <Text style={styles.subtitle}>Select a server</Text>
+          </View>
+
+          <View style={styles.form}>
+            {servers.map((s) => (
+              <View key={s.id} style={styles.serverRow}>
+                <TouchableOpacity
+                  onPress={() => handleSwitch(s)}
+                  style={styles.serverBtn}
+                  activeOpacity={0.8}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.serverName}>{s.name}</Text>
+                    <Text style={styles.serverUrl}>{s.url}</Text>
+                  </View>
+                  <Text style={styles.serverAction}>Connect ›</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleRemove(s)}
+                  style={styles.serverRemove}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.serverRemoveText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            <TouchableOpacity
+              onPress={() => setMode('add')}
+              style={[styles.button, { backgroundColor: colors.elevated, marginTop: 16 }]}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.buttonText, { color: colors.textMuted }]}>Add New Server</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
+    )
+  }
 
   return (
     <KeyboardAvoidingView
@@ -68,10 +145,21 @@ export default function LoginScreen() {
             <View style={styles.logoInner} />
           </View>
           <Text style={styles.title}>ElasticClaw</Text>
-          <Text style={styles.subtitle}>Connect to your hub</Text>
+          <Text style={styles.subtitle}>{servers.length > 0 ? 'Add new server' : 'Connect to your hub'}</Text>
         </View>
 
         <View style={styles.form}>
+          <Text style={styles.label}>Server name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. Production"
+            placeholderTextColor={colors.textMuted}
+            value={serverName}
+            onChangeText={setServerName}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
           <Text style={styles.label}>Hub URL</Text>
           <TextInput
             style={styles.input}
@@ -109,6 +197,16 @@ export default function LoginScreen() {
               : <Text style={[styles.buttonText, { color: canSubmit ? colors.white : colors.textMuted }]}>Sign In</Text>
             }
           </TouchableOpacity>
+
+          {servers.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setMode('list')}
+              style={[styles.button, { backgroundColor: 'transparent', marginTop: 8 }]}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.buttonText, { color: colors.textMuted }]}>← Back to servers</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -147,4 +245,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: { fontSize: 15, fontWeight: '600' },
+  serverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 10,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  serverBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  serverName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  serverUrl: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  serverAction: { color: colors.blue, fontSize: 13, fontWeight: '600' },
+  serverRemove: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: colors.border,
+  },
+  serverRemoveText: { color: colors.red, fontSize: 14, fontWeight: '600' },
 })

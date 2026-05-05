@@ -3,18 +3,18 @@ import { useEffect, useState } from 'react'
 import { Stack } from 'expo-router'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { getToken, getHubUrl as getStoredHubUrl } from '@/lib/storage'
-import { setHubUrl } from '@/lib/hub-url'
+import { refreshActiveServer } from '@/lib/hub-url'
 import { setTokenCache } from '@/lib/api'
+import { migrateLegacyServer } from '@/lib/servers'
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
     async function init() {
-      const [token, url] = await Promise.all([getToken(), getStoredHubUrl()])
-      if (url) setHubUrl(url)
-      if (token) setTokenCache(token)
+      await migrateLegacyServer()
+      const server = await refreshActiveServer()
+      if (server) setTokenCache(server.token)
       setReady(true)
     }
     init()

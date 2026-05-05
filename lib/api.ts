@@ -1,6 +1,5 @@
 import type { ApiClaw, ApiMessage, CreateClawRequest } from "./types"
-import { getHubUrl } from "./hub-url"
-import { getToken } from "./storage"
+import { getHubUrl, getActiveToken, refreshActiveServer } from "./hub-url"
 
 let _token: string | null = null
 let _tokenPromise: Promise<string> | null = null
@@ -9,8 +8,8 @@ export function resolveToken(): Promise<string> {
   if (_token) return Promise.resolve(_token)
   if (_tokenPromise) return _tokenPromise
 
-  _tokenPromise = getToken().then((stored) => {
-    _token = stored || ''
+  _tokenPromise = refreshActiveServer().then((server) => {
+    _token = server?.token || ''
     _tokenPromise = null
     return _token
   })
@@ -24,7 +23,7 @@ export function setTokenCache(token: string) {
 }
 
 function getTokenSync(): string {
-  return _token || ''
+  return _token || getActiveToken()
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -260,6 +259,11 @@ export async function uploadFiles(
 }
 
 export function clearConfig() {
+  _token = null
+  _tokenPromise = null
+}
+
+export function invalidateTokenCache() {
   _token = null
   _tokenPromise = null
 }
