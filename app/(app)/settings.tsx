@@ -5,14 +5,17 @@ import {
 } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ChevronLeft, Check, LogOut, Trash2, Star, Plus } from 'lucide-react-native'
+import { ChevronLeft, Check, LogOut, Trash2, Star, Plus, Server } from 'lucide-react-native'
 import { colors } from '@/lib/theme'
 import {
   fetchSettings, patchSettings, clearConfig,
   listSecrets, putSecret, deleteSecret,
   type SettingsView, type LLMKeyView, type LinearIntegrationView,
 } from '@/lib/api'
-import { deleteToken } from '@/lib/storage'
+import { useHubContext } from '@/context/HubContext'
+import { listServers, switchServer, removeServer, type ServerConfig } from '@/lib/servers'
+import { setActiveServer } from '@/lib/hub-url'
+import { setTokenCache } from '@/lib/api'
 
 const LLM_PROVIDERS = ['anthropic', 'fireworks'] as const
 const PROVIDER_PLACEHOLDER: Record<string, string> = {
@@ -35,10 +38,12 @@ const PROVIDER_MODELS: Record<string, { id: string; name: string }[]> = {
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets()
+  const hub = useHubContext()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [servers, setServers] = useState<ServerConfig[]>([])
 
   // Provider form state
   const [repToken, setRepToken] = useState('')
@@ -74,7 +79,11 @@ export default function SettingsScreen() {
     setLoading(true)
     setError(null)
     try {
-      const [s, sec] = await Promise.all([fetchSettings(), listSecrets().catch(() => [])])
+      const [s, sec, srvs] = await Promise.all([
+        fetchSettings(),
+        listSecrets().catch(() => []),
+        listServers(),
+      ])
       setSettings(s)
       setRepTtl(s.providers?.replicated?.defaultTtl ?? '')
       setRepInstance(s.providers?.replicated?.defaultInstanceType ?? '')
@@ -82,6 +91,7 @@ export default function SettingsScreen() {
       setDaySnapshot(s.providers?.daytona?.defaultSnapshot ?? '')
       setSshKeys(s.sshPublicKeys ?? [])
       setSecrets(sec)
+      setServers(srvs)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings')
     } finally {
@@ -90,6 +100,31 @@ export default function SettingsScreen() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  async function handleSwitchServer(server: ServerConfig) {
+    await switchServer(server.id)
+    setActiveServer(server)
+    setTokenCache(server.token)
+    hub.refreshServer()
+    router.replace('/(app)')
+  }
+
+  async function handleRemoveServer(server: ServerConfig) {
+    Alert.alert('Remove server', `Remove "${server.name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive',
+        onPress: async () => {
+          await removeServer(server.id)
+          setServers(await listServers())
+          if (hub.serverId === server.id) {
+            // If we removed the active server, go back to login
+            router.replace('/(auth)/login')
+          }
+        },
+      },
+    ])
+  }
 
   // ── Save for provider/security/SSH sections (not LLM/Linear/Secrets which save individually) ──
   async function handleSave() {
@@ -260,7 +295,6 @@ export default function SettingsScreen() {
       {
         text: 'Sign out', style: 'destructive',
         onPress: async () => {
-          await deleteToken()
           clearConfig()
           router.replace('/(auth)/login')
         },
@@ -296,6 +330,56 @@ export default function SettingsScreen() {
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex} keyboardVerticalOffset={64}>
           <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 32 }} keyboardShouldPersistTaps="handled">
+
+            {/* SERVERS */}
+            <Section title="Servers" subtitle="Tap to switch, swipe to remove.">
+              {servers.length === 0 ? (
+                <Text style={styles.emptyText}>No servers configured.</Text>
+              ) : (
+                <View style={{ gap: 8 }}>
+                  {servers.map((s) => (
+                    <View key={s.id} style={styles.serverRow}>
+                      <TouchableOpacity
+                        onPress={() => handleSwitchServer(s)}
+                        style={[styles.serverBtn, s.id === hub.serverId && styles.serverBtnActive]}
+                        activeOpacity={0.8}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[styles.serverName, s.id === hub.serverId && styles.serverNameActive]}>
+                              {s.name}
+                            </Text>
+                            {s.id === hub.serverId && (
+                              <View style={styles.activeBadge}>
+                                <Text style={styles.activeBadgeText}>active</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.serverUrl}>{s.url}</Text>
+                        </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleRemoveServer(s)}
+                        style={styles.serverRemove}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Trash2 size={16} color={colors.red} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <TouchableOpacity
+                onPress={() => router.push('/(auth)/login')}
+                style={styles.inlineAddBtn}
+                activeOpacity={0.8}
+              >
+                <Plus size={16} color={colors.white} />
+                <Text style={styles.inlineAddText}>Add Server</Text>
+              </TouchableOpacity>
+            </Section>
+
 
             {/* LLM KEYS — list + add */}
             <Section title="LLM Keys" subtitle="One key per provider. Default key is used when a template doesn't specify.">
@@ -757,6 +841,38 @@ const styles = StyleSheet.create({
   sshKeyText: { color: colors.text, fontSize: 11, fontFamily: 'Menlo' },
   roRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   roLabel: { color: colors.text, fontSize: 13, fontWeight: '500' },
+  serverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  serverBtn: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  serverBtnActive: {
+    backgroundColor: colors.elevated,
+  },
+  serverName: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  serverNameActive: { color: colors.blue },
+  serverUrl: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  activeBadge: {
+    backgroundColor: 'rgba(59,130,246,0.15)',
+    paddingHorizontal: 6, paddingVertical: 1,
+    borderRadius: 6,
+  },
+  activeBadgeText: { color: colors.blueLight, fontSize: 9, fontWeight: '700', letterSpacing: 0.3, textTransform: 'uppercase' },
+  serverRemove: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: colors.border,
+  },
   roValue: { color: colors.textMuted, fontSize: 12 },
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

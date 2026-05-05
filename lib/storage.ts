@@ -1,35 +1,13 @@
-import * as SecureStore from 'expo-secure-store'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { Message } from './types'
 
-const TOKEN_KEY = 'ec_hub_token'
-const HUB_URL_KEY = 'ec_hub_url'
-const PINNED_KEY = 'elasticclaw_pinned'
-const MESSAGES_KEY = 'elasticclaw_messages'
+// Per-server keys — suffix with server ID at runtime
+function messagesKey(serverId: string) { return `ec_messages_${serverId}` }
+function pinnedKey(serverId: string) { return `ec_pinned_${serverId}` }
 
-export async function saveToken(token: string) {
-  await SecureStore.setItemAsync(TOKEN_KEY, token)
-}
-
-export async function getToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(TOKEN_KEY)
-}
-
-export async function deleteToken() {
-  await SecureStore.deleteItemAsync(TOKEN_KEY)
-}
-
-export async function saveHubUrl(url: string) {
-  await SecureStore.setItemAsync(HUB_URL_KEY, url)
-}
-
-export async function getHubUrl(): Promise<string | null> {
-  return SecureStore.getItemAsync(HUB_URL_KEY)
-}
-
-export async function loadCachedMessages(): Promise<Record<string, Array<{ id: string; role: string; content: string; timestamp: string }>> | null> {
+export async function loadCachedMessages(serverId: string): Promise<Record<string, Array<{ id: string; role: string; content: string; timestamp: string }>> | null> {
   try {
-    const raw = await AsyncStorage.getItem(MESSAGES_KEY)
+    const raw = await AsyncStorage.getItem(messagesKey(serverId))
     if (!raw) return null
     return JSON.parse(raw)
   } catch {
@@ -37,15 +15,15 @@ export async function loadCachedMessages(): Promise<Record<string, Array<{ id: s
   }
 }
 
-export async function persistMessages(msgs: Record<string, unknown[]>) {
+export async function persistMessages(serverId: string, msgs: Record<string, unknown[]>) {
   try {
-    await AsyncStorage.setItem(MESSAGES_KEY, JSON.stringify(msgs))
+    await AsyncStorage.setItem(messagesKey(serverId), JSON.stringify(msgs))
   } catch {}
 }
 
-export async function loadPinned(): Promise<Record<string, boolean>> {
+export async function loadPinned(serverId: string): Promise<Record<string, boolean>> {
   try {
-    const raw = await AsyncStorage.getItem(PINNED_KEY)
+    const raw = await AsyncStorage.getItem(pinnedKey(serverId))
     if (!raw) return {}
     return JSON.parse(raw)
   } catch {
@@ -53,8 +31,18 @@ export async function loadPinned(): Promise<Record<string, boolean>> {
   }
 }
 
-export async function savePinned(pinned: Record<string, boolean>) {
+export async function savePinned(serverId: string, pinned: Record<string, boolean>) {
   try {
-    await AsyncStorage.setItem(PINNED_KEY, JSON.stringify(pinned))
+    await AsyncStorage.setItem(pinnedKey(serverId), JSON.stringify(pinned))
+  } catch {}
+}
+
+// Legacy cleanup — old keys are no longer used but may exist from pre-multi-server versions
+export async function clearLegacyStorage() {
+  try {
+    await AsyncStorage.multiRemove([
+      'elasticclaw_messages',
+      'elasticclaw_pinned',
+    ])
   } catch {}
 }

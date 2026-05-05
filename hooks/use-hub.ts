@@ -10,12 +10,14 @@ import {
   patchClaw as apiPatchClaw,
   getHubWsUrl,
   resolveToken,
+  invalidateTokenCache,
 } from "@/lib/api"
 import { buildAttachmentsFooter, type PendingAttachment } from "@/lib/attachments"
 import { resolveHubTemplate, buildCreateRequest } from "@/lib/template"
 import { mapApiClaw, mapApiMessage, mapApiStatus, computeUptime } from "@/lib/mappers"
 import { useTypewriter, type TypewriterState } from "@/hooks/use-typewriter"
 import * as storage from "@/lib/storage"
+import { getActiveServerId } from "@/lib/hub-url"
 
 export interface HubState {
   claws: Claw[]
@@ -38,7 +40,7 @@ export interface HubState {
 
 const MAX_CACHED_PER_CLAW = 200
 
-export function useHub(selectedClawId: string | null): HubState {
+export function useHub(selectedClawId: string | null, serverId: string | null): HubState {
   const [claws, setClaws] = useState<Claw[]>([])
   const [messages, setMessages] = useState<Record<string, Message[]>>({})
   const messagesRef = useRef<Record<string, Message[]>>({})
@@ -52,28 +54,46 @@ export function useHub(selectedClawId: string | null): HubState {
   const wsRef = useRef<WebSocket | null>(null)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const selectedClawIdRef = useRef<string | null>(selectedClawId)
+  const serverIdRef = useRef<string | null>(serverId)
 
   useEffect(() => { selectedClawIdRef.current = selectedClawId }, [selectedClawId])
   useEffect(() => { messagesRef.current = messages }, [messages])
 
   const persistMessages = useCallback((msgs: Record<string, Message[]>) => {
+    const sid = serverIdRef.current
+    if (!sid) return
     const toSave: Record<string, unknown[]> = {}
     for (const [clawId, clawMsgs] of Object.entries(msgs)) {
       toSave[clawId] = clawMsgs
         .filter((m) => !m.id.startsWith('opt-') && m.role !== 'system')
         .slice(-MAX_CACHED_PER_CLAW)
     }
-    storage.persistMessages(toSave).catch(() => {})
+    storage.persistMessages(sid, toSave).catch(() => {})
   }, [])
 
-  // Load pinned + message cache from storage on mount
+  // Load pinned + message cache from storage when server changes
   useEffect(() => {
-    storage.loadPinned().then((pinned) => {
+    serverIdRef.current = serverId
+    if (!serverId) {
+      setClaws([])
+      setMessages({})
+      pinnedRef.current = {}
+      return
+    }
+
+    invalidateTokenCache()
+    setLoading(true)
+    setHubError(null)
+
+    storage.loadPinned(serverId).then((pinned) => {
       pinnedRef.current = pinned
     }).catch(() => {})
 
-    storage.loadCachedMessages().then((cached) => {
-      if (!cached) return
+    storage.loadCachedMessages(serverId).then((cached) => {
+      if (!cached) {
+        setMessages({})
+        return
+      }
       const hydrated: Record<string, Message[]> = {}
       for (const [clawId, msgs] of Object.entries(cached)) {
         hydrated[clawId] = msgs.map((m) => ({
@@ -84,11 +104,13 @@ export function useHub(selectedClawId: string | null): HubState {
       }
       setMessages(hydrated)
     }).catch(() => {})
-  }, [])
+  }, [serverId])
 
   const savePinnedState = useCallback((pinned: Record<string, boolean>) => {
+    const sid = serverIdRef.current
+    if (!sid) return
     pinnedRef.current = pinned
-    storage.savePinned(pinned).catch(() => {})
+    storage.savePinned(sid, pinned).catch(() => {})
   }, [])
 
   const setPinned = useCallback((clawId: string, pinned: boolean) => {
@@ -165,9 +187,16 @@ export function useHub(selectedClawId: string | null): HubState {
   }, [persistMessages])
 
   const connectWebSocket = useCallback(() => {
-    if (wsRef.current) wsRef.current.close()
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
 
     const wsUrl = getHubWsUrl()
+    if (!wsUrl) {
+      console.warn('No hub URL — skipping WS connect')
+      return
+    }
     let ws: WebSocket
     try {
       ws = new WebSocket(wsUrl)
@@ -275,15 +304,22 @@ export function useHub(selectedClawId: string | null): HubState {
   }, [mergeClaws, refreshClaws, pushChunk, finalizeTypewriter, persistMessages])
 
   useEffect(() => {
+    if (!serverId) {
+      setLoading(false)
+      return
+    }
     refreshClaws()
     pollIntervalRef.current = setInterval(refreshClaws, 10_000)
     resolveToken().then(() => connectWebSocket())
 
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
-      if (wsRef.current) wsRef.current.close()
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [serverId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = useCallback(async (clawId: string, content: string, attachments?: PendingAttachment[]) => {
     if (!clawId || (!content.trim() && !attachments?.length)) return
